@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>全球汇率同步计算器</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --card-bg: #ffffff;
+            --text-main: #1d1d1f;
+            --text-muted: #86868b;
+            --accent: #007aff;
+            --border-radius: 16px;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px 15px;
+            color: var(--text-main);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .header h1 {
+            font-size: 22px;
+            margin: 0 0 5px 0;
+        }
+        .header p {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin: 0;
+        }
+        .calculator-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .currency-card {
+            background-color: var(--card-bg);
+            border-radius: var(--border-radius);
+            padding: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .currency-select {
+            appearance: none;
+            background-color: transparent;
+            border: none;
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--accent);
+            outline: none;
+            width: 85px;
+        }
+        .input-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            flex-grow: 1;
+        }
+        .amount-input {
+            width: 100%;
+            border: none;
+            background: transparent;
+            font-size: 24px;
+            font-weight: 500;
+            text-align: right;
+            color: var(--text-main);
+            outline: none;
+        }
+        .amount-input::placeholder {
+            color: #c7c7cc;
+        }
+        .rate-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .add-btn {
+            background-color: transparent;
+            color: var(--accent);
+            border: 2px dashed #d1d1d6;
+            border-radius: var(--border-radius);
+            padding: 14px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: 500;
+            margin-top: 8px;
+            cursor: pointer;
+        }
+
+        /* 弹窗面板样式 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+            align-items: flex-end;
+            justify-content: center;
+        }
+        .modal-content {
+            background: var(--card-bg);
+            width: 100%;
+            max-height: 80vh;
+            border-radius: 20px 20px 0 0;
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            animation: slideUp 0.3s ease-out;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .modal-header h3 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .close-btn {
+            font-size: 24px;
+            color: var(--text-muted);
+            cursor: pointer;
+            line-height: 1;
+        }
+        .search-input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #d1d1d6;
+            border-radius: 10px;
+            font-size: 16px;
+            box-sizing: border-box;
+            margin-bottom: 15px;
+            outline: none;
+        }
+        .search-input:focus {
+            border-color: var(--accent);
+        }
+        .currency-list {
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+        .currency-item {
+            padding: 15px 10px;
+            border-bottom: 1px solid #f0f2f5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+        .currency-item:active {
+            background-color: #f9f9f9;
+        }
+        .currency-code {
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .currency-name {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>实时汇率计算</h1>
+        <p id="update-time">正在获取最新汇率...</p>
+    </div>
+
+    <div class="calculator-container" id="cards-container"></div>
+
+    <div class="add-btn" onclick="openModal()">+ 添加更多币种</div>
+
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>选择要添加的币种</h3>
+                <span class="close-btn" onclick="closeModal()">&times;</span>
+            </div>
+            <input type="text" id="searchInput" class="search-input" placeholder="输入代码或中文检索 (如: JPY 或 日元)" oninput="filterCurrencies()">
+            <div class="currency-list" id="currencyList"></div>
+        </div>
+    </div>
+
+<script>
+    const CURRENCY_DICT = {
+        'USD': '美元', 'CNY': '人民币', 'SGD': '新加坡元/新币', 'MYR': '马来西亚林吉特',
+        'THB': '泰铢', 'PHP': '菲律宾比索', 'IDR': '印尼盾', 'VND': '越南盾',
+        'INR': '印度卢比', 'JPY': '日元', 'KRW': '韩元', 'EUR': '欧元',
+        'GBP': '英镑', 'AUD': '澳元', 'HKD': '港币', 'TWD': '新台币', 'MOP': '澳门元'
+    };
+    const ALL_CURRENCIES = Object.keys(CURRENCY_DICT);
+    
+    let rates = {};
+    let baseUsdAmount = 0; 
+    let activeCards = ['USD', 'CNY', 'SGD', 'THB']; 
+
+    async function fetchRates() {
+        try {
+            const res = await fetch("https://open.er-api.com/v6/latest/USD");
+            const data = await res.json();
+            rates = data.rates;
+            document.getElementById('update-time').innerText = "支持汇率计算 (输入 = 或 Enter 结算)";
+        } catch (e) {
+            document.getElementById('update-time').innerText = "离线模式：使用内置汇率";
+            rates = {'USD':1, 'CNY':7.24, 'SGD':1.35, 'MYR':4.74, 'THB':36.4, 'PHP':56.2, 'IDR':15850, 'VND':25400, 'INR':83.3, 'JPY':151.8, 'HKD':7.8, 'TWD':32.1};
+        }
+        renderCards();
+    }
+
+    function evaluateMath(expression) {
+        let sanitized = expression.replace(/[^0-9+\-*/.]/g, '');
+        if (!sanitized) return null;
+        try { return new Function('return ' + sanitized)(); } 
+        catch (e) { return null; }
+    }
+
+    function renderCards() {
+        const container = document.getElementById('cards-container');
+        container.innerHTML = ''; 
+
+        activeCards.forEach((currency, index) => {
+            const card = document.createElement('div');
+            card.className = 'currency-card';
+
+            let optionsHtml = ALL_CURRENCIES.map(c => 
+                `<option value="${c}" ${c === currency ? 'selected' : ''}>${c}</option>`
+            ).join('');
+
+            let displayAmount = '';
+            if (baseUsdAmount > 0) {
+                let currentRate = rates[currency] || 1;
+                let val = baseUsdAmount * currentRate;
+                displayAmount = (currentRate > 1000) ? val.toFixed(0) : val.toFixed(2);
+            }
+
+            // 新增了 onkeydown 和 onblur 监听器
+            card.innerHTML = `
+                <select class="currency-select" onchange="changeCurrency(${index}, this.value)">
+                    ${optionsHtml}
+                </select>
+                <div class="input-wrapper">
+                    <input type="text" class="amount-input" data-index="${index}" value="${displayAmount}" placeholder="0" 
+                        oninput="handleInput(event, '${currency}')" 
+                        onkeydown="handleKeyDown(event, '${currency}')"
+                        onblur="handleBlur(event, '${currency}')">
+                    <div class="rate-hint">1 USD = ${rates[currency] ? rates[currency].toFixed(2) : '--'} ${currency}</div>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    // 核心逻辑：格式化当前输入框，把公式变成数字
+    function formatCurrentInput(inputElement, currency) {
+        const cleanVal = inputElement.value.replace(/=/g, ''); // 剔除等号
+        if (!cleanVal.trim()) return;
+
+        const calculatedValue = evaluateMath(cleanVal);
+        if (calculatedValue !== null && !isNaN(calculatedValue)) {
+            const currentRate = rates[currency] || 1;
+            // 把当前栏位的公式替换为最终计算结果
+            inputElement.value = (currentRate > 1000) ? calculatedValue.toFixed(0) : calculatedValue.toFixed(2);
+            
+            // 同步全局数据
+            baseUsdAmount = calculatedValue / currentRate;
+            syncAllInputs(inputElement.getAttribute('data-index'));
+        } else {
+            // 如果公式没写完 (比如 "100+"), 过滤掉等号保留原样
+            inputElement.value = cleanVal;
+        }
+    }
+
+    function handleInput(event, currency) {
+        const inputVal = event.target.value;
+        const currentIndex = event.target.getAttribute('data-index');
+
+        // 魔法1：如果检测到输入了 "=" 号，直接触发当前栏结算
+        if (inputVal.includes('=')) {
+            formatCurrentInput(event.target, currency);
+            return;
+        }
+
+        if (!inputVal.trim()) {
+            baseUsdAmount = 0;
+            syncAllInputs(currentIndex);
+            return;
+        }
+
+        const currentRate = rates[currency] || 1;
+        const calculatedValue = evaluateMath(inputVal);
+        
+        // 当还在输入公式时，后台默默同步其他货币，但当前栏保留公式
+        if (calculatedValue !== null && !isNaN(calculatedValue)) {
+            baseUsdAmount = calculatedValue / currentRate;
+            syncAllInputs(currentIndex); 
+        }
+    }
+
+    function handleKeyDown(event, currency) {
+        // 魔法2：监听 Enter 回车键 (电脑的回车 或 手机键盘的"完成/搜索/前往")
+        if (event.key === 'Enter' || event.keyCode === 13) {
+            event.preventDefault(); // 防止刷新页面
+            formatCurrentInput(event.target, currency);
+            event.target.blur(); // 强制收起手机键盘，体验更好
+        }
+    }
+
+    function handleBlur(event, currency) {
+        // 魔法3：失去焦点（点击屏幕其他地方）自动结算
+        formatCurrentInput(event.target, currency);
+    }
+
+    function syncAllInputs(skipIndex) {
+        const inputs = document.querySelectorAll('.amount-input');
+        inputs.forEach((input) => {
+            if (input.getAttribute('data-index') !== skipIndex) {
+                if (baseUsdAmount === 0) {
+                    input.value = '';
+                } else {
+                    const select = input.parentElement.parentElement.querySelector('.currency-select');
+                    const cur = select.value;
+                    const rate = rates[cur] || 1;
+                    const val = baseUsdAmount * rate;
+                    input.value = (rate > 1000) ? val.toFixed(0) : val.toFixed(2);
+                }
+            }
+        });
+    }
+
+    function changeCurrency(index, newCurrency) {
+        activeCards[index] = newCurrency;
+        renderCards(); 
+    }
+
+    // 弹窗逻辑保持不变
+    function openModal() {
+        document.getElementById('modalOverlay').style.display = 'flex';
+        document.getElementById('searchInput').value = ''; 
+        renderModalList(''); 
+        setTimeout(() => document.getElementById('searchInput').focus(), 100);
+    }
+
+    function closeModal(event) {
+        if (!event || event.target.id === 'modalOverlay' || event.target.className === 'close-btn') {
+            document.getElementById('modalOverlay').style.display = 'none';
+        }
+    }
+
+    function filterCurrencies() {
+        const keyword = document.getElementById('searchInput').value.toLowerCase();
+        renderModalList(keyword);
+    }
+
+    function renderModalList(keyword) {
+        const listContainer = document.getElementById('currencyList');
+        listContainer.innerHTML = '';
+
+        const availableCurrencies = ALL_CURRENCIES.filter(c => {
+            const isAlreadyAdded = activeCards.includes(c);
+            const name = CURRENCY_DICT[c];
+            const matchKeyword = c.toLowerCase().includes(keyword) || name.includes(keyword);
+            return !isAlreadyAdded && matchKeyword;
+        });
+
+        if (availableCurrencies.length === 0) {
+            listContainer.innerHTML = '<div style="text-align:center; padding: 20px; color: #86868b;">没有找到匹配的币种</div>';
+            return;
+        }
+
+        availableCurrencies.forEach(c => {
+            const item = document.createElement('div');
+            item.className = 'currency-item';
+            item.innerHTML = `<span class="currency-code">${c}</span><span class="currency-name">${CURRENCY_DICT[c]}</span>`;
+            item.onclick = () => {
+                activeCards.push(c);
+                renderCards();
+                document.getElementById('modalOverlay').style.display = 'none';
+            };
+            listContainer.appendChild(item);
+        });
+    }
+
+    fetchRates();
+</script>
+</body>
+</html>
