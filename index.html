@@ -19,6 +19,15 @@
             margin: 0;
             padding: 20px 15px;
             color: var(--text-main);
+            /* 让 PC 端内容居中 */
+            display: flex;
+            justify-content: center;
+        }
+        /* 新增：限制最大宽度，解决 PC 端拉伸太长的问题 */
+        .app-wrapper {
+            width: 100%;
+            max-width: 480px; 
+            margin: 0 auto;
         }
         .header {
             text-align: center;
@@ -107,6 +116,7 @@
         .modal-content {
             background: var(--card-bg);
             width: 100%;
+            max-width: 480px; /* 弹窗在 PC 端也保持相同宽度 */
             max-height: 80vh;
             border-radius: 20px 20px 0 0;
             padding: 20px;
@@ -175,14 +185,16 @@
 </head>
 <body>
 
-    <div class="header">
-        <h1>实时汇率计算</h1>
-        <p id="update-time">正在获取最新汇率...</p>
+    <div class="app-wrapper">
+        <div class="header">
+            <h1>实时汇率计算</h1>
+            <p id="update-time">正在获取最新汇率...</p>
+        </div>
+
+        <div class="calculator-container" id="cards-container"></div>
+
+        <div class="add-btn" onclick="openModal()">+ 添加更多币种</div>
     </div>
-
-    <div class="calculator-container" id="cards-container"></div>
-
-    <div class="add-btn" onclick="openModal()">+ 添加更多币种</div>
 
     <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
         <div class="modal-content" onclick="event.stopPropagation()">
@@ -221,8 +233,21 @@
         renderCards();
     }
 
+    // 新增：标准的千分位格式化函数
+    function formatNumberWithCommas(value, rate) {
+        const isLarge = rate > 1000;
+        // 使用美国本地化格式自动添加逗号，并控制小数位数
+        return value.toLocaleString('en-US', {
+            minimumFractionDigits: isLarge ? 0 : 2,
+            maximumFractionDigits: isLarge ? 0 : 2
+        });
+    }
+
+    // 核心安全数学计算：新增了剔除逗号的逻辑
     function evaluateMath(expression) {
-        let sanitized = expression.replace(/[^0-9+\-*/.]/g, '');
+        // 先把逗号剔除，否则 eval 无法进行数学计算
+        let cleanExpression = expression.replace(/,/g, '');
+        let sanitized = cleanExpression.replace(/[^0-9+\-*/.]/g, '');
         if (!sanitized) return null;
         try { return new Function('return ' + sanitized)(); } 
         catch (e) { return null; }
@@ -244,10 +269,9 @@
             if (baseUsdAmount > 0) {
                 let currentRate = rates[currency] || 1;
                 let val = baseUsdAmount * currentRate;
-                displayAmount = (currentRate > 1000) ? val.toFixed(0) : val.toFixed(2);
+                displayAmount = formatNumberWithCommas(val, currentRate);
             }
 
-            // 新增了 onkeydown 和 onblur 监听器
             card.innerHTML = `
                 <select class="currency-select" onchange="changeCurrency(${index}, this.value)">
                     ${optionsHtml}
@@ -264,22 +288,19 @@
         });
     }
 
-    // 核心逻辑：格式化当前输入框，把公式变成数字
     function formatCurrentInput(inputElement, currency) {
-        const cleanVal = inputElement.value.replace(/=/g, ''); // 剔除等号
+        const cleanVal = inputElement.value.replace(/=/g, ''); 
         if (!cleanVal.trim()) return;
 
         const calculatedValue = evaluateMath(cleanVal);
         if (calculatedValue !== null && !isNaN(calculatedValue)) {
             const currentRate = rates[currency] || 1;
-            // 把当前栏位的公式替换为最终计算结果
-            inputElement.value = (currentRate > 1000) ? calculatedValue.toFixed(0) : calculatedValue.toFixed(2);
+            // 计算完毕后，将当前框格式化为带逗号的展示
+            inputElement.value = formatNumberWithCommas(calculatedValue, currentRate);
             
-            // 同步全局数据
             baseUsdAmount = calculatedValue / currentRate;
             syncAllInputs(inputElement.getAttribute('data-index'));
         } else {
-            // 如果公式没写完 (比如 "100+"), 过滤掉等号保留原样
             inputElement.value = cleanVal;
         }
     }
@@ -288,7 +309,6 @@
         const inputVal = event.target.value;
         const currentIndex = event.target.getAttribute('data-index');
 
-        // 魔法1：如果检测到输入了 "=" 号，直接触发当前栏结算
         if (inputVal.includes('=')) {
             formatCurrentInput(event.target, currency);
             return;
@@ -303,7 +323,6 @@
         const currentRate = rates[currency] || 1;
         const calculatedValue = evaluateMath(inputVal);
         
-        // 当还在输入公式时，后台默默同步其他货币，但当前栏保留公式
         if (calculatedValue !== null && !isNaN(calculatedValue)) {
             baseUsdAmount = calculatedValue / currentRate;
             syncAllInputs(currentIndex); 
@@ -311,16 +330,14 @@
     }
 
     function handleKeyDown(event, currency) {
-        // 魔法2：监听 Enter 回车键 (电脑的回车 或 手机键盘的"完成/搜索/前往")
         if (event.key === 'Enter' || event.keyCode === 13) {
-            event.preventDefault(); // 防止刷新页面
+            event.preventDefault(); 
             formatCurrentInput(event.target, currency);
-            event.target.blur(); // 强制收起手机键盘，体验更好
+            event.target.blur(); 
         }
     }
 
     function handleBlur(event, currency) {
-        // 魔法3：失去焦点（点击屏幕其他地方）自动结算
         formatCurrentInput(event.target, currency);
     }
 
@@ -335,7 +352,8 @@
                     const cur = select.value;
                     const rate = rates[cur] || 1;
                     const val = baseUsdAmount * rate;
-                    input.value = (rate > 1000) ? val.toFixed(0) : val.toFixed(2);
+                    // 同步其他框时，全部采用千分位格式化
+                    input.value = formatNumberWithCommas(val, rate);
                 }
             }
         });
@@ -346,7 +364,6 @@
         renderCards(); 
     }
 
-    // 弹窗逻辑保持不变
     function openModal() {
         document.getElementById('modalOverlay').style.display = 'flex';
         document.getElementById('searchInput').value = ''; 
